@@ -1,0 +1,162 @@
+---
+title: "post MR operation"
+author: "Lanlan Chen"
+date: "6/14/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE,message=FALSE}
+library(TwoSampleMR)
+library(ggplot2)
+library(cowplot)
+library(diagram)
+```
+
+## Statistical method and programming for MR
+
+```{r}
+wald_ratio <- function(b_exp, b_out, se_exp, se_out, parameters)
+{
+	if(length(b_exp) > 1)
+	{
+		return(list(b=NA, se=NA, pval=NA, nsnp=NA))
+	}
+	b <- b_out / b_exp
+	se <- se_out / abs(b_exp)
+	# sqrt((segd^2/gp^2) + (gd^2/gp^4)*segp^2 - 2*(gd/gp^3)) #full delta method with cov set to 0
+	pval <- pnorm(abs(b) / se, lower.tail=FALSE) * 2
+	return(list(b=b, se=se, pval=pval, nsnp=1))
+}
+
+ivw <- function(b_exp, b_out, se_exp, se_out, parameters=default_parameters())
+{
+	if(sum(!is.na(b_exp) & !is.na(b_out) & !is.na(se_exp) & !is.na(se_out)) < 2)
+	return(list(b=NA, se=NA, pval=NA, nsnp=NA))
+
+	ivw.res <- summary(lm(b_out ~ -1 + b_exp, weights = 1/se_out^2))
+	b <- ivw.res$coef["b_exp","Estimate"]
+	se <- ivw.res$coef["b_exp","Std. Error"]/min(1,ivw.res$sigma) #sigma is the residual standard error
+	pval <- 2 * pnorm(abs(b/se), low=FALSE)
+	Q_df <- length(b_exp) - 1
+	Q <- ivw.res$sigma^2 * Q_df
+	Q_pval <- pchisq(Q, Q_df, low=FALSE)
+	# from formula phi =  Q/DF rearranged to to Q = phi*DF, where phi is sigma^2
+	# Q.ivw<-sum((1/(se_out/b_exp)^2)*(b_out/b_exp-ivw.reg.beta)^2)
+	return(list(b = b, se = se, pval = pval, nsnp=length(b_exp), Q = Q, Q_df = Q_df, Q_pval = Q_pval))
+}
+```
+
+```{r}
+wald_ratio(0.3, 0.004, 0.6,0.3)
+ivw(b_exp=c(0.3,0.5),se_exp=c(0.004,0.0005),b_out=c(0.6,0.8),se_out=c(0.3,0.04))
+```
+
+## How to plot MR
+
+Now we have got the MR results from our high throughput analysis and the next step is to extract those significant phenotypes and visualize our results of interest
+
+First, I will introduce you to plot MR results:
+```{r, echo=TRUE}
+setwd("C:\\Users\\11780\\Desktop\\pannap_res\\my-1190_my-6150_2_both_sexes") # to set the working directory
+dat = read.table('harmonized_data.tsv',sep='\t',header=T) # to read preprocessed data for next analysis
+head(dat,n=3) # to view the first 3 lines of data
+dat$id.exposure = 'Daytime napping'
+dat$id.outcome = 'Angina'
+dat$exposure = 'Daytime napping'
+dat$outcome ='Angina' # to change the name of exposure and outcome
+head(dat,n=3) # to see the changed data
+mr_method_list() # to look at all the methods available for TwoSampleMR package
+```
+
+Please remember to change the phenotype to your desired one and it is essential to next steps.
+
+Here, we can get an overview of our original data. Then we are about to plot.
+
+Please note that there are many methods available for performing MR and you can choose whatever you think is appropriate. However, I suggest using the three one I have mentioned above. 
+
+### plot a MR scatter picture
+
+```{r, echo=TRUE}
+res = mr(dat, method_list=c('mr_ivw','mr_egger_regression','mr_weighted_median')) # to get the MR results
+print(res)
+p1 <- mr_scatter_plot(res,dat)[[1]]
+print(p1)
+```
+
+### plot a MR forest picture
+
+```{r, echo=TRUE}
+res_single = mr_singlesnp(dat,all_method=c('mr_ivw','mr_egger_regression','mr_weighted_median')) ## to contruct the dataframe used in forest plot
+p2 <- mr_forest_plot(res_single)[[1]]
+print(p2)
+```
+
+### plot a MR leave-one-out sensitivity picture
+
+```{r, echo=TRUE}
+loop = mr_leaveoneout(dat)
+p3 <- mr_leaveoneout_plot(loop)[[1]]
+print(p3)
+```
+
+### plot a MR funnel picture
+
+```{r, echo=TRUE}
+p4 <- mr_funnel_plot(res_single)[[1]]
+print(p4)
+```
+
+### to combine the 4 pictures into one 
+
+```{r, echo=TRUE}
+p <- plot_grid(p1,p2,p3,p4)
+print(p)
+```
+
+'cowplot' is a powerful packages for combining pictures and plot_grid() is the most useful function in it.
+
+## Plot a picture to demonstrate our discovery
+
+```{r, echo=TRUE}
+##to plot the causal relationship
+#setwd("C:\\Users\\11780\\Documents\\R语言练习\\Diagram")
+#pdf('pan_nap_mr.pdf',height=6.5, width=14)
+par(mar=c(1,1,1,1))
+openplotmat(main="")
+plotpos <- coordinates(c(3,3,3,3))
+straightarrow( from=plotpos[8,], to=plotpos[4,], lwd=3, arr.pos=0.5, arr.length=0.5)
+straightarrow( from=plotpos[8,], to=plotpos[2,], lwd=3, arr.pos=0.5, arr.length=0.5)
+straightarrow( from=plotpos[8,], to=plotpos[6,], lwd=3, arr.pos=0.5, arr.length=0.5)
+straightarrow( from=plotpos[8,], to=plotpos[1,], lwd=3, lty=2, arr.pos=0.5, arr.length=0.5)
+straightarrow( from=plotpos[8,], to=plotpos[3,], lwd=3, lty=2, arr.pos=0.5, arr.length=0.5)
+straightarrow( from=plotpos[8,], to=plotpos[7,], lwd=3, arr.pos=0.5, arr.length=0.5)
+straightarrow( from=plotpos[8,], to=plotpos[9,], lwd=3, arr.pos=0.5, arr.length=0.5)
+straightarrow( from=plotpos[8,], to=plotpos[10,], lwd=3, arr.pos=0.5, arr.length=0.5)
+straightarrow( from=plotpos[8,], to=plotpos[11,], lwd=3, arr.pos=0.5, arr.length=0.5)
+straightarrow( from=plotpos[8,], to=plotpos[12,], lwd=3, arr.pos=0.5, arr.length=0.5)
+textdiamond(plotpos[2,], 0.09, 0.05, lab=c('Lethargy', 'Tiredness'),
+         box.col="gray", shadow.col="darkgray", shadow.size=0.005, cex=1.1, font=2)
+textellipse(plotpos[1,], 0.09, 0.05, lab=c('Walking pace'),
+         box.col="gray", shadow.col="darkgray", shadow.size=0.005, cex=1.1, font=2)
+textellipse(plotpos[3,], 0.09, 0.05, lab=c('Walking frequency'),
+         box.col="gray", shadow.col="darkgray", shadow.size=0.005, cex=1.1, font=2)
+textround(plotpos[8,], 0.09, 0.05, lab=c('Daytime napping'),
+         box.col="gray", shadow.col="darkgray", shadow.size=0.005, cex=1.1, font=2)
+textparallel(plotpos[4,], 0.09, 0.05, lab=c('Diastolic','blood pressure'),
+         box.col="gray", shadow.col="darkgray", shadow.size=0.005, cex=1.1, font=2)
+textparallel(plotpos[6,], 0.09, 0.05, lab=c('Body fat','percentage'),
+         box.col="gray", shadow.col="darkgray", shadow.size=0.005, cex=1.1, font=2)
+textrect(plotpos[7,], 0.09, 0.05, lab=c('Hematocrit','percentage'),
+         box.col="gray", shadow.col="darkgray", shadow.size=0.005, cex=1.1, font=2)
+textrect(plotpos[9,], 0.09, 0.05, lab=c('Reticulocyte','count'),
+         box.col="gray", shadow.col="darkgray", shadow.size=0.005, cex=1.1, font=2)
+textrect(plotpos[10,], 0.09, 0.05, lab=c('Angina'),
+         box.col="gray", shadow.col="darkgray", shadow.size=0.005, cex=1.1, font=2)
+textrect(plotpos[11,], 0.09, 0.05, lab=c('Gastroesophageal','reflux'),
+         box.col="gray", shadow.col="darkgray", shadow.size=0.005, cex=1.1, font=2)
+textrect(plotpos[12,], 0.09, 0.05, lab=c('Asthma'),
+         box.col="gray", shadow.col="darkgray", shadow.size=0.005, cex=1.1, font=2)
+#dev.off()
+```
+
+## Thank you for your listening!
